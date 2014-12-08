@@ -1,4 +1,4 @@
-libclang-
+libclangpp
 =========
 
 C++ bindings for libclang
