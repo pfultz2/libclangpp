@@ -727,7 +727,7 @@ struct cursor
     {
         return clang_equalCursors(self, cursor_var.self);
     }
-    int is_null()
+    bool is_null()
     {
         return clang_Cursor_isNull(self);
     }
@@ -807,13 +807,12 @@ struct cursor
     {
         return clang_getFieldDeclBitWidth(self);
     }
-    int get_num_arguments()
+    auto get_arguments()
     {
-        return clang_Cursor_getNumArguments(self);
-    }
-    cursor get_argument(unsigned i)
-    {
-        return clang_Cursor_getArgument(self, i);
+        return detail::make_index_range(0, clang_Cursor_getNumArguments(self), [&](int i)
+        {
+            return cursor(clang_Cursor_getArgument(self, i));
+        });
     }
     string get_decl_obj_c_type_encoding()
     {
@@ -823,11 +822,11 @@ struct cursor
     {
         return clang_getCursorResultType(self);
     }
-    unsigned is_bit_field()
+    bool is_bit_field()
     {
         return clang_Cursor_isBitField(self);
     }
-    unsigned is_virtual_base()
+    bool is_virtual_base()
     {
         return clang_isVirtualBase(self);
     }
@@ -835,21 +834,25 @@ struct cursor
     {
         return clang_getCXXAccessSpecifier(self);
     }
-    unsigned get_num_overloaded_decls()
+    auto get_overloaded_decls()
     {
-        return clang_getNumOverloadedDecls(self);
-    }
-    cursor get_overloaded_decl(unsigned index)
-    {
-        return clang_getOverloadedDecl(self, index);
+        return detail::make_index_range(0, clang_getNumOverloadedDecls(self), [&](int i)
+        {
+            return cursor(clang_getOverloadedDecl(self, i));
+        });
     }
     type get_ib_outlet_collection_type()
     {
         return clang_getIBOutletCollectionType(self);
     }
-    unsigned visit_children(CXCursorVisitor visitor, CXClientData client_data)
+    template<class F>
+    unsigned visit_children(F f)
     {
-        return clang_visitChildren(self, visitor, client_data);
+        CXCursorVisitor visitor = [](CXCursor c, CXCursor parent, CXClientData data) -> CXChildVisitResult
+        {
+            return (*reinterpret_cast<F*>(data))(cursor(c), cursor(parent));
+        };
+        return clang_visitChildren(self, visitor, &f);
     }
     string get_usr()
     {
@@ -875,7 +878,7 @@ struct cursor
     {
         return clang_getCursorDefinition(self);
     }
-    unsigned is_definition()
+    bool is_definition()
     {
         return clang_isCursorDefinition(self);
     }
@@ -887,7 +890,7 @@ struct cursor
     {
         return clang_Cursor_getObjCSelectorIndex(self);
     }
-    int is_dynamic_call()
+    bool is_dynamic_call()
     {
         return clang_Cursor_isDynamicCall(self);
     }
@@ -907,7 +910,7 @@ struct cursor
     {
         return clang_Cursor_isObjCOptional(self);
     }
-    unsigned is_variadic()
+    bool is_variadic()
     {
         return clang_Cursor_isVariadic(self);
     }
@@ -927,16 +930,15 @@ struct cursor
     {
         return clang_Cursor_getParsedComment(self);
     }
-    
-    unsigned is_pure_virtual()
+    bool is_pure_virtual()
     {
         return clang_CXXMethod_isPureVirtual(self);
     }
-    unsigned is_static()
+    bool is_static()
     {
         return clang_CXXMethod_isStatic(self);
     }
-    unsigned is_virtual()
+    bool is_virtual()
     {
         return clang_CXXMethod_isVirtual(self);
     }
@@ -960,9 +962,21 @@ struct cursor
     {
         return clang_getCursorCompletionString(self);
     }
-    CXResult find_references_in_file(file file, CXCursorAndRangeVisitor visitor)
+    template<class F>
+    static CXCursorAndRangeVisitor make_range_visitor(F& f)
     {
-        return clang_findReferencesInFile(self, file.self, visitor);
+        CXCursorAndRangeVisitor visitor = {};
+        visitor.context = &f;
+        visitor.visit = [](void *context, CXCursor c, CXSourceRange r) -> CXVisitorResult
+        {
+            return (*(reinterpret_cast<F*>(context)))(cursor(c), source_range(r));
+        };
+        return visitor;
+    }
+    template<class F>
+    CXResult find_references_in_file(file file, F f)
+    {
+        return clang_findReferencesInFile(self, file.self, make_range_visitor(f));
     }
 #ifdef __has_feature
 #  if __has_feature(blocks)
@@ -1120,9 +1134,10 @@ struct translation_unit
     {
         clang_getInclusions(self.get(), visitor, client_data);
     }
-    CXResult find_includes_in_file(file file, CXCursorAndRangeVisitor visitor)
+    template<class F>
+    CXResult find_includes_in_file(file file, F f)
     {
-        return clang_findIncludesInFile(self.get(), file.self, visitor);
+        return clang_findIncludesInFile(self.get(), file.self, cursor::make_range_visitor(f));
     }
 #ifdef __has_feature
 #  if __has_feature(blocks)
