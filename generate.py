@@ -145,6 +145,7 @@ classes = [
     CppClass('CXIdxEntityInfo'),
     CppClass('CXIdxEntityRefKind'),
     CppClass('CXIdxLoc'),
+    CppClass('CXIdxClientFile'),
     CppClass('CXRemapping'),
     CppClass('CXCompilationDatabase'),
     CppClass('CXCompileCommands'),

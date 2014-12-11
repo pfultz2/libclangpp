@@ -169,7 +169,6 @@ struct string
         return *this;
     }
     string(const string&)=delete;
-    string& operator=(const string&)=delete;
     ~string()
     {
         if (self.data != nullptr) clang_disposeString(self);
@@ -178,11 +177,17 @@ struct string
     {
         return clang_getCString(self);
     }
+
+    std::string to_std_string() const
+    {
+        return this->c_str();
+    }
 };
 
 class string_view
 {
     const char * s;
+public:
     string_view() : s(nullptr)
     {}
     string_view(const char * s) : s(s)
@@ -219,7 +224,7 @@ struct file
     {
         CXFileUniqueID result;
         int err = clang_getFileUniqueID(self, &result);
-        if (err != 0) throw std::exception();
+        if (err != 0) throw std::runtime_error("Unique ID failed");
         return result;
     }
 };
@@ -381,7 +386,7 @@ struct diagnostic_set
         }
         auto get_fix_its()
         {
-            return detail::make_index_range(0, clang_getDiagnosticNumFixIts(self.get()), [&](unsigned i)
+            return detail::make_index_range(0, clang_getDiagnosticNumFixIts(self.get()), [this](unsigned i)
             {
                 fix_it x;
                 x.replacement = clang_getDiagnosticFixIt(self.get(), i, &x.range.self);
@@ -425,7 +430,7 @@ struct comment
     }
     auto get_children()
     {
-        return detail::make_index_range(0, clang_Comment_getNumChildren(self), [&](unsigned i) 
+        return detail::make_index_range(0, clang_Comment_getNumChildren(self), [this](unsigned i) 
         {
             return comment(clang_Comment_getChild(self, i));
         });
@@ -468,7 +473,7 @@ struct comment
     }
     auto get_tag_attributes()
     {
-        return detail::make_index_range(0, clang_HTMLStartTag_getNumAttrs(self), [&](unsigned i) 
+        return detail::make_index_range(0, clang_HTMLStartTag_getNumAttrs(self), [this](unsigned i) 
         {
             return std::make_pair(
                 string(clang_HTMLStartTag_getAttrName(self, i)), 
@@ -482,7 +487,7 @@ struct comment
     }
     auto get_block_args()
     {
-        return detail::make_index_range(0, clang_BlockCommandComment_getNumArgs(self), [&](unsigned i) 
+        return detail::make_index_range(0, clang_BlockCommandComment_getNumArgs(self), [this](unsigned i) 
         {
             return string(clang_BlockCommandComment_getArgText(self, i));
         });
@@ -595,7 +600,7 @@ struct type
     }
     auto get_arg_types()
     {
-        return detail::make_index_range(0, clang_getNumArgTypes(self), [&](unsigned i) 
+        return detail::make_index_range(0, clang_getNumArgTypes(self), [this](unsigned i) 
         {
             return type(clang_getArgType(self, i));
         });
@@ -809,7 +814,7 @@ struct cursor
     }
     auto get_arguments()
     {
-        return detail::make_index_range(0, clang_Cursor_getNumArguments(self), [&](int i)
+        return detail::make_index_range(0, clang_Cursor_getNumArguments(self), [this](int i)
         {
             return cursor(clang_Cursor_getArgument(self, i));
         });
@@ -836,7 +841,7 @@ struct cursor
     }
     auto get_overloaded_decls()
     {
-        return detail::make_index_range(0, clang_getNumOverloadedDecls(self), [&](int i)
+        return detail::make_index_range(0, clang_getNumOverloadedDecls(self), [this](int i)
         {
             return cursor(clang_getOverloadedDecl(self, i));
         });
@@ -1013,6 +1018,84 @@ struct code_complete_results
     {
         if (results == nullptr) return nullptr;
         else return results->Results + results->NumResults;
+    }
+};
+
+struct compile_command
+{
+    CXCompileCommand self;
+    compile_command(CXCompileCommand s) : self(s)
+    {}
+    string get_directory()
+    {
+        return clang_CompileCommand_getDirectory(self);
+    }
+    auto get_args()
+    {
+        return detail::make_index_range(0, clang_CompileCommand_getNumArgs(self), [this](int i)
+        {
+            return clang_CompileCommand_getArg(self, i);
+        });
+    }
+    auto get_mapped_sources()
+    {
+        return detail::make_index_range(0, clang_CompileCommand_getNumMappedSources(self), [this](int i)
+        {
+            return std::make_pair(clang_CompileCommand_getMappedSourcePath(self, i), clang_CompileCommand_getMappedSourceContent(self, i));
+        });
+    }
+};
+struct compile_commands
+{
+    detail::unique_ptr<CXCompileCommands, decltype(&clang_CompileCommands_dispose)> self;
+    compile_commands(CXCompileCommands s) : self(s, &clang_CompileCommands_dispose)
+    {}
+    unsigned size() const
+    {
+        return clang_CompileCommands_getSize(self.get());
+    }
+    compile_command operator()(unsigned i) const
+    {
+        return clang_CompileCommands_getCommand(self.get(), i);
+    }
+
+    using iterator = detail::index_iterator<const compile_commands>;
+    using const_iterator = detail::index_iterator<const compile_commands>;
+
+    iterator begin() const
+    {
+        return iterator(0, *this);
+    }
+
+    iterator end() const
+    {
+        return iterator(size(), *this);
+    }
+};
+struct compilation_database
+{
+    using self_ptr = detail::unique_ptr<CXCompilationDatabase, decltype(&clang_CompilationDatabase_dispose)>;
+    self_ptr self;
+    compilation_database(string_view build_dir) : self(nullptr, &clang_CompilationDatabase_dispose)
+    {
+        CXCompilationDatabase_Error error_code;
+        self = self_ptr(clang_CompilationDatabase_fromDirectory(build_dir.c_str(), &error_code), &clang_CompilationDatabase_dispose);
+        if (error_code != CXCompilationDatabase_Error::CXCompilationDatabase_NoError)
+        {
+            throw std::runtime_error("Database can't be loaded");
+        }
+    }
+    compile_commands operator[](string_view complete_file_name) const
+    {
+        return this->get_compile_commands(complete_file_name);
+    }
+    compile_commands get_compile_commands(string_view complete_file_name) const
+    {
+        return clang_CompilationDatabase_getCompileCommands(self.get(), complete_file_name.c_str());
+    }
+    compile_commands get_all_compile_commands() const
+    {
+        return clang_CompilationDatabase_getAllCompileCommands(self.get());
     }
 };
 
@@ -1267,71 +1350,6 @@ struct remapping
         clang_remap_getFilenames(self, index, original, transformed);
     }
 };
-struct compile_command
-{
-    CXCompileCommand self;
-    compile_command(CXCompileCommand s) : self(s)
-    {}
-    string get_directory()
-    {
-        return clang_CompileCommand_getDirectory(self);
-    }
-    unsigned get_num_args()
-    {
-        return clang_CompileCommand_getNumArgs(self);
-    }
-    string get_arg(unsigned i)
-    {
-        return clang_CompileCommand_getArg(self, i);
-    }
-    unsigned get_num_mapped_sources()
-    {
-        return clang_CompileCommand_getNumMappedSources(self);
-    }
-    string get_mapped_source_path(unsigned i)
-    {
-        return clang_CompileCommand_getMappedSourcePath(self, i);
-    }
-    string get_mapped_source_content(unsigned i)
-    {
-        return clang_CompileCommand_getMappedSourceContent(self, i);
-    }
-};
-struct compile_commands
-{
-    detail::unique_ptr<CXCompileCommands, decltype(&clang_CompileCommands_dispose)> self;
-    compile_commands(CXCompileCommands s) : self(s, &clang_CompileCommands_dispose)
-    {}
-    unsigned get_size()
-    {
-        return clang_CompileCommands_getSize(self.get());
-    }
-    compile_command get_command(unsigned i)
-    {
-        return clang_CompileCommands_getCommand(self.get(), i);
-    }
-};
-struct compilation_database
-{
-    CXCompilationDatabase self;
-    compilation_database(const char * build_dir, CXCompilationDatabase_Error * error_code) : self(clang_CompilationDatabase_fromDirectory(build_dir, error_code))
-    {}
-    compilation_database(const compilation_database&)=delete;
-    compilation_database& operator=(const compilation_database&)=delete;
-    ~compilation_database()
-    {
-        clang_CompilationDatabase_dispose(self);
-    }
-    compile_commands get_compile_commands(const char * complete_file_name)
-    {
-        return clang_CompilationDatabase_getCompileCommands(self, complete_file_name);
-    }
-    compile_commands get_all_compile_commands()
-    {
-        return clang_CompilationDatabase_getAllCompileCommands(self);
-    }
-};
-
 
 }
 
