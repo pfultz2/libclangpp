@@ -6,6 +6,7 @@
 #include <type_traits>
 #include <iterator>
 #include <clang-c/Index.h>
+#include <clang-c/Documentation.h>
 #include <clang-c/CXCompilationDatabase.h>
 
 
