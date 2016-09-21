@@ -1,6 +1,6 @@
 import sys, re
 
-fname = sys.argv[1]
+fnames = sys.argv[1:]
 
 decls = []
 
@@ -113,46 +113,155 @@ class CppClass:
         return '\n'.join(['struct ' + self.name, '{'] + [('    ' + x) for x in result] + ['};'])
 
 
-with open(fname) as f:
-    current_decl = ''
-    for line in f.readlines():
-        l = line.strip()
-        if l.startswith('CINDEX_LINKAGE') or len(current_decl) > 0:
-            current_decl = current_decl + ' ' + l
-        if l.endswith(';'): 
-            if len(current_decl) > 0: decls.append(current_decl[len('CINDEX_LINKAGE')+1:].strip())
-            current_decl = ''
+for fname in fnames:
+    with open(fname) as f:
+        current_decl = ''
+        for line in f.readlines():
+            l = line.strip()
+            if l.startswith('CINDEX_LINKAGE') or len(current_decl) > 0:
+                current_decl = current_decl + ' ' + l
+            if l.endswith(';'): 
+                if len(current_decl) > 0: decls.append(current_decl[len('CINDEX_LINKAGE')+1:].strip())
+                current_decl = ''
 
 classes = [
-    CppClass('CXIndex'), 
-    CppClass('CXTranslationUnit'), 
-    CppClass('CXFile'),
-    CppClass('CXIndexAction'),
-    CppClass('CXSourceLocation'),
-    CppClass('CXDiagnostic'),
-    CppClass('CXDiagnosticSet'),
-    CppClass('CXString'),
-    CppClass('CXTUResourceUsage'),
-    CppClass('CXCursor'),
-    CppClass('CXSourceRange'),
+    CppClass('CXAvailabilityKind'),
+    CppClass('CXCallingConv'),
+    CppClass('CXChildVisitResult'),
+    CppClass('CXClientData'),
     CppClass('CXCodeCompleteResults'),
-    CppClass('CXUnsavedFile'),
-    CppClass('CXResult'),
     CppClass('CXComment'),
-    CppClass('CXType'),
-    CppClass('CXCompletionString'),
-    CppClass('CXIdxIncludedFileInfo'),
-    CppClass('CXIdxEntityInfo'),
-    CppClass('CXIdxEntityRefKind'),
-    CppClass('CXIdxLoc'),
-    CppClass('CXIdxClientFile'),
-    CppClass('CXRemapping'),
+    CppClass('CXCommentInlineCommandRenderKind'),
+    CppClass('CXCommentKind'),
+    CppClass('CXCommentParamPassDirection'),
     CppClass('CXCompilationDatabase'),
-    CppClass('CXCompileCommands'),
     CppClass('CXCompileCommand'),
+    CppClass('CXCompileCommands'),
+    CppClass('CXCompletionChunkKind'),
+    CppClass('CXCompletionContext'),
+    CppClass('CXCompletionResult'),
+    CppClass('CXCompletionString'),
+    CppClass('CXCursor'),
+    CppClass('CXCursorAndRangeVisitor'),
+    CppClass('CXCursorAndRangeVisitorBlock'),
+    CppClass('CXCursorKind'),
+    CppClass('CXCursors'),
+    CppClass('CXCursorSet'),
+    CppClass('CXCursorSetImpl'),
+    CppClass('CXCursorVisitor'),
+    CppClass('CXCursorVisitorBlock'),
+    CppClass('CXDiagnostic'),
+    CppClass('CXDiagnosticDisplayOptions'),
+    CppClass('CXDiagnostics'),
+    CppClass('CXDiagnosticSet'),
     CppClass('CXDiagnosticSeverity'),
+    CppClass('CXErrorCode'),
+    CppClass('CXFieldVisitor'),
+    CppClass('CXFile'),
+    CppClass('CXFileUniqueID'),
+    CppClass('CXGlobalOptFlags'),
+    CppClass('CXIdxAttrInfo'),
+    CppClass('CXIdxAttrKind'),
+    CppClass('CXIdxBaseClassInfo'),
+    CppClass('CXIdxClientASTFile'),
+    CppClass('CXIdxClientContainer'),
+    CppClass('CXIdxClientEntity'),
+    CppClass('CXIdxClientFile'),
+    CppClass('CXIdxContainerInfo'),
+    CppClass('CXIdxCXXClassDeclInfo'),
+    CppClass('CXIdxDeclInfo'),
+    CppClass('CXIdxDeclInfoFlags'),
+    CppClass('CXIdxEntityCXXTemplateKind'),
+    CppClass('CXIdxEntityInfo'),
+    CppClass('CXIdxEntityKind'),
+    CppClass('CXIdxEntityLanguage'),
+    CppClass('CXIdxEntityRefInfo'),
+    CppClass('CXIdxEntityRefKind'),
+    CppClass('CXIdxFile'),
+    CppClass('CXIdxIBOutletCollectionAttrInfo'),
+    CppClass('CXIdxImportedASTFileInfo'),
+    CppClass('CXIdxIncludedFileInfo'),
+    CppClass('CXIdxLoc'),
+    CppClass('CXIdxObjCCategoryDeclInfo'),
+    CppClass('CXIdxObjCContainerDeclInfo'),
+    CppClass('CXIdxObjCContainerKind'),
+    CppClass('CXIdxObjCInterfaceDeclInfo'),
+    CppClass('CXIdxObjCPropertyDeclInfo'),
+    CppClass('CXIdxObjCProtocolRefInfo'),
+    CppClass('CXIdxObjCProtocolRefListInfo'),
+    CppClass('CXInclusionVisitor'),
+    CppClass('CXIndex'),
+    CppClass('CXIndexAction'),
+    CppClass('CXIndexOptFlags'),
+    CppClass('CXLanguageKind'),
+    CppClass('CXLinkageKind'),
+    CppClass('CXModule'),
+    CppClass('CXModuleMapDescriptor'),
+    CppClass('CXModuleMapDescriptorImpl'),
+    CppClass('CXNameRefFlags'),
+    CppClass('CXObjCDeclQualifierKind'),
+    CppClass('CXObjCPropertyAttrKind'),
+    CppClass('CXPlatformAvailability'),
+    CppClass('CXRefQualifierKind'),
+    CppClass('CXRemapping'),
+    CppClass('CXResult'),
+    CppClass('CXSaveError'),
+    CppClass('CXSourceLocation'),
+    CppClass('CXSourceRange'),
+    CppClass('CXSourceRangeList'),
+    CppClass('CXSourceRanges'),
+    CppClass('CXString'),
+    CppClass('CXStrings'),
+    CppClass('CXStringSet'),
+    CppClass('CXTemplateArgumentKind'),
     CppClass('CXToken'),
-    CppClass('CXModule')
+    CppClass('CXTokenKind'),
+    CppClass('CXTranslationUnit'),
+    CppClass('CXTranslationUnitImpl'),
+    CppClass('CXTUResourceUsage'),
+    CppClass('CXTUResourceUsageEntry'),
+    CppClass('CXTUResourceUsageKind'),
+    CppClass('CXType'),
+    CppClass('CXTypeKind'),
+    CppClass('CXTypeLayoutError'),
+    CppClass('CXTypes'),
+    CppClass('CXUnsavedFile'),
+    CppClass('CXVersion'),
+    CppClass('CXVirtualFileOverlay'),
+    CppClass('CXVirtualFileOverlayImpl'),
+    CppClass('CXVisibilityKind'),
+    CppClass('CXVisitorResult'),
+    CppClass('CXXNewExpr')
+
+    # CppClass('CXIndex'), 
+    # CppClass('CXTranslationUnit'), 
+    # CppClass('CXFile'),
+    # CppClass('CXIndexAction'),
+    # CppClass('CXSourceLocation'),
+    # CppClass('CXDiagnostic'),
+    # CppClass('CXDiagnosticSet'),
+    # CppClass('CXString'),
+    # CppClass('CXTUResourceUsage'),
+    # CppClass('CXCursor'),
+    # CppClass('CXSourceRange'),
+    # CppClass('CXCodeCompleteResults'),
+    # CppClass('CXUnsavedFile'),
+    # CppClass('CXResult'),
+    # CppClass('CXComment'),
+    # CppClass('CXType'),
+    # CppClass('CXCompletionString'),
+    # CppClass('CXIdxIncludedFileInfo'),
+    # CppClass('CXIdxEntityInfo'),
+    # CppClass('CXIdxEntityRefKind'),
+    # CppClass('CXIdxLoc'),
+    # CppClass('CXIdxClientFile'),
+    # CppClass('CXRemapping'),
+    # CppClass('CXCompilationDatabase'),
+    # CppClass('CXCompileCommands'),
+    # CppClass('CXCompileCommand'),
+    # CppClass('CXDiagnosticSeverity'),
+    # CppClass('CXToken'),
+    # CppClass('CXModule')
 ]
 
 for c in classes:

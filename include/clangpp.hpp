@@ -14,11 +14,29 @@ namespace clang {
 
 namespace detail {
 
-template<class T, class Deleter>
-using unique_ptr = std::unique_ptr<typename std::remove_pointer<T>::type, Deleter>;
+template<class T, class=void>
+struct id_impl { using type = T; };
+
+template<class T, class U=void>
+using id = typename id_impl<T, U>::type;
+
+template<class F, F f>
+struct deleter
+{
+    template<class T>
+    void operator()(T* x) const
+    {
+        if (x != nullptr) { f(x); }
+    }
+};
+
+template<class T, class F, F f>
+using unique_ptr = std::unique_ptr<typename std::remove_pointer<T>::type, deleter<F, f>>;
 
 template<class T>
 using shared_ptr = std::shared_ptr<typename std::remove_pointer<T>::type>;
+
+#define CLANGPP_UNIQUE_PTR(T, F) clang::detail::unique_ptr<typename std::remove_pointer<T>::type, decltype(&F), &F>
 
 template<class F>
 struct index_iterator
@@ -228,6 +246,10 @@ struct file
         if (err != 0) throw std::runtime_error("Unique ID failed");
         return result;
     }
+    bool is_equal(file rhs)
+    {
+        return clang_File_isEqual(self, rhs.self);
+    }
 };
 struct file_location : file
 {
@@ -243,15 +265,15 @@ struct source_location
     {}
     source_location(CXSourceLocation l) : self(l)
     {}
-    unsigned equal_locations(source_location loc2)
+    bool equal_locations(source_location loc2)
     {
         return clang_equalLocations(self, loc2.self);
     }
-    int is_in_system_header()
+    bool is_in_system_header()
     {
         return clang_Location_isInSystemHeader(self);
     }
-    int is_from_main_file()
+    bool is_from_main_file()
     {
         return clang_Location_isFromMainFile(self);
     }
@@ -265,6 +287,14 @@ struct source_location
         file_location result;
         clang_getExpansionLocation(self, &result.self, &result.line, &result.column, &result.offset);
         return result;
+    }
+    std::tuple<string, unsigned, unsigned> get_presumed_location()
+    {
+        string filename;
+        unsigned line;
+        unsigned column;
+        clang_getPresumedLocation(self, &filename.self, &line, &column);
+        return std::make_tuple(std::move(filename), line, column);
     }
     file_location get_instantiation_location()
     {
@@ -294,11 +324,11 @@ struct source_range
     {}
     source_range(source_location start, source_location end) : self(clang_getRange(start.self, end.self))
     {}
-    unsigned equal_ranges(source_range range2)
+    bool equal_ranges(source_range range2)
     {
         return clang_equalRanges(self, range2.self);
     }
-    int is_null()
+    bool is_null()
     {
         return clang_Range_isNull(self);
     }
@@ -331,20 +361,18 @@ struct diagnostic;
 
 struct diagnostic_set
 {
-    detail::unique_ptr<CXDiagnosticSet, decltype(&clang_disposeDiagnosticSet)> self;
+    CLANGPP_UNIQUE_PTR(CXDiagnosticSet, clang_disposeDiagnosticSet) self;
     // diagnostic_set(const char * file, CXLoadDiag_Error * error, CXString * error_string) : self(clang_loadDiagnostics(file, error, error_string))
     // {}
     
 
-    diagnostic_set(CXDiagnostic s) : self(s, clang_disposeDiagnosticSet)
+    diagnostic_set(CXDiagnostic s) : self(s)
     {}
     struct diagnostic
     {
-        detail::unique_ptr<CXDiagnostic, decltype(&clang_disposeDiagnostic)> self;
-        diagnostic(CXDiagnostic s) : self(s, clang_disposeDiagnostic)
+        CLANGPP_UNIQUE_PTR(CXDiagnostic, clang_disposeDiagnostic) self;
+        diagnostic(CXDiagnostic s) : self(s)
         {}
-        // diagnostic(CXCodeCompleteResults * results, unsigned index) : self(clang_codeCompleteGetDiagnostic(results, index))
-        // {}
         diagnostic_set get_child_diagnostics()
         {
             return clang_getChildDiagnostics(self.get());
@@ -436,7 +464,7 @@ struct comment
             return comment(clang_Comment_getChild(self, i));
         });
     }
-    unsigned is_whitespace()
+    bool is_whitespace()
     {
         return clang_Comment_isWhitespace(self);
     }
@@ -468,7 +496,7 @@ struct comment
     {
         return clang_HTMLTagComment_getTagName(self);
     }
-    unsigned is_self_closing()
+    bool is_self_closing()
     {
         return clang_HTMLStartTagComment_isSelfClosing(self);
     }
@@ -501,7 +529,7 @@ struct comment
     {
         return clang_ParamCommandComment_getParamName(self);
     }
-    unsigned is_param_index_valid()
+    bool is_param_index_valid()
     {
         return clang_ParamCommandComment_isParamIndexValid(self);
     }
@@ -509,7 +537,7 @@ struct comment
     {
         return clang_ParamCommandComment_getParamIndex(self);
     }
-    unsigned is_direction_explicit()
+    bool is_direction_explicit()
     {
         return clang_ParamCommandComment_isDirectionExplicit(self);
     }
@@ -521,7 +549,7 @@ struct comment
     {
         return clang_TParamCommandComment_getParamName(self);
     }
-    unsigned is_param_position_valid()
+    bool is_param_position_valid()
     {
         return clang_TParamCommandComment_isParamPositionValid(self);
     }
@@ -554,6 +582,7 @@ struct comment
         return clang_FullComment_getAsXML(self);
     }
 };
+struct cursor;
 struct type
 {
     CXType self;
@@ -587,10 +616,11 @@ struct type
     {
         return clang_getPointeeType(self);
     }
-    // cursor get_declaration()
-    // {
-    //     return clang_getTypeDeclaration(self);
-    // }
+    template<class T=void>
+    detail::id<cursor, T> get_declaration()
+    {
+        return clang_getTypeDeclaration(self);
+    }
     CXCallingConv get_function_calling_conv()
     {
         return clang_getFunctionTypeCallingConv(self);
@@ -646,9 +676,25 @@ struct type
     {
         return clang_Type_getOffsetOf(self, s);
     }
+    auto get_template_arguments()
+    {
+        return detail::make_index_range(0, clang_Type_getNumTemplateArguments(self), [this](unsigned i) 
+        {
+            return type(clang_Type_getTemplateArgumentAsType(self, i));
+        });
+    }
     CXRefQualifierKind get_cxx_ref_qualifier()
     {
         return clang_Type_getCXXRefQualifier(self);
+    }
+    template<class F>
+    unsigned visit_fields(F f)
+    {
+        CXFieldVisitor visitor = [](CXCursor c, CXClientData data) -> CXChildVisitResult
+        {
+            return (*reinterpret_cast<F*>(data))(detail::id<cursor, F>(c));
+        };
+        return clang_Type_visitFields(self, visitor, &f);
     }
 };
 
@@ -720,6 +766,29 @@ struct module
     {
         return clang_Module_getFullName(self);
     }
+    bool is_system()
+    {
+        return clang_Module_isSystem(self);
+    }
+};
+
+struct module_map_descriptor
+{
+    CLANGPP_UNIQUE_PTR(CXModuleMapDescriptor, clang_ModuleMapDescriptor_dispose) self;
+    module_map_descriptor(unsigned options) : self(clang_ModuleMapDescriptor_create(options))
+    {}
+    CXErrorCode set_framework_module_name(const char * name)
+    {
+        return clang_ModuleMapDescriptor_setFrameworkModuleName(self.get(), name);
+    }
+    CXErrorCode set_umbrella_header(const char * name)
+    {
+        return clang_ModuleMapDescriptor_setUmbrellaHeader(self.get(), name);
+    }
+    CXErrorCode write_to_buffer(unsigned options, char ** out_buffer_ptr, unsigned * out_buffer_size)
+    {
+        return clang_ModuleMapDescriptor_writeToBuffer(self.get(), options, out_buffer_ptr, out_buffer_size);
+    }
 };
 
 struct cursor
@@ -729,7 +798,7 @@ struct cursor
     {}
     cursor(CXCursor s) : self(s)
     {}
-    unsigned equal_cursors(cursor cursor_var)
+    bool equal_cursors(cursor cursor_var)
     {
         return clang_equalCursors(self, cursor_var.self);
     }
@@ -749,6 +818,10 @@ struct cursor
     {
         return clang_getCursorLinkage(self);
     }
+    CXVisibilityKind get_cursor_visibility()
+    {
+        return clang_getCursorVisibility(self);
+    }
     CXAvailabilityKind get_availability()
     {
         return clang_getCursorAvailability(self);
@@ -765,6 +838,10 @@ struct cursor
     {
         return clang_Cursor_getModule(self);
     }
+    // std::shared_ptr<translation_unit> get_translation_unit()
+    // {
+    //     return clang_Cursor_getTranslationUnit(self);
+    // }
     cursor get_semantic_parent()
     {
         return clang_getCursorSemanticParent(self);
@@ -820,6 +897,27 @@ struct cursor
             return cursor(clang_Cursor_getArgument(self, i));
         });
     }
+    // TODO: Make range
+    int get_num_template_arguments()
+    {
+        return clang_Cursor_getNumTemplateArguments(self);
+    }
+    CXTemplateArgumentKind get_template_argument_kind(unsigned i)
+    {
+        return clang_Cursor_getTemplateArgumentKind(self, i);
+    }
+    type get_template_argument_type(unsigned i)
+    {
+        return clang_Cursor_getTemplateArgumentType(self, i);
+    }
+    long long get_template_argument_value(unsigned i)
+    {
+        return clang_Cursor_getTemplateArgumentValue(self, i);
+    }
+    unsigned long long get_template_argument_unsigned_value(unsigned i)
+    {
+        return clang_Cursor_getTemplateArgumentUnsignedValue(self, i);
+    }
     string get_decl_obj_c_type_encoding()
     {
         return clang_getDeclObjCTypeEncoding(self);
@@ -827,6 +925,14 @@ struct cursor
     type get_result_type()
     {
         return clang_getCursorResultType(self);
+    }
+    long long get_offset_of_field()
+    {
+        return clang_Cursor_getOffsetOfField(self);
+    }
+    bool is_anonymous()
+    {
+        return clang_Cursor_isAnonymous(self);
     }
     bool is_bit_field()
     {
@@ -839,6 +945,10 @@ struct cursor
     CX_CXXAccessSpecifier get_cxx_access_specifier()
     {
         return clang_getCXXAccessSpecifier(self);
+    }
+    CX_StorageClass get_storage_class()
+    {
+        return clang_Cursor_getStorageClass(self);
     }
     auto get_overloaded_decls()
     {
@@ -912,7 +1022,7 @@ struct cursor
     {
         return clang_Cursor_getObjCDeclQualifiers(self);
     }
-    unsigned is_obj_c_optional()
+    bool is_obj_c_optional()
     {
         return clang_Cursor_isObjCOptional(self);
     }
@@ -932,9 +1042,21 @@ struct cursor
     {
         return clang_Cursor_getBriefCommentText(self);
     }
+    string get_mangling()
+    {
+        return clang_Cursor_getMangling(self);
+    }
+    // string_set get_cxx_manglings()
+    // {
+    //     return *clang_Cursor_getCXXManglings(self);
+    // }
     comment get_parsed_comment()
     {
         return clang_Cursor_getParsedComment(self);
+    }
+    bool is_mutable()
+    {
+        return clang_CXXField_isMutable(self);
     }
     bool is_pure_virtual()
     {
@@ -947,6 +1069,10 @@ struct cursor
     bool is_virtual()
     {
         return clang_CXXMethod_isVirtual(self);
+    }
+    bool is_const()
+    {
+        return clang_CXXMethod_isConst(self);
     }
     CXCursorKind get_template_kind()
     {
@@ -993,32 +1119,49 @@ struct cursor
 #endif
 #endif
 };
-
 struct code_complete_results
 {
-    std::unique_ptr<CXCodeCompleteResults, decltype(&clang_disposeCodeCompleteResults)> results;
+    CLANGPP_UNIQUE_PTR(CXCodeCompleteResults, clang_disposeCodeCompleteResults) self;
     using iterator = CXCompletionResult*;
     using const_iterator = CXCompletionResult*;
 
-    code_complete_results(CXCodeCompleteResults* r) : results(r, &clang_disposeCodeCompleteResults)
+    code_complete_results(CXCodeCompleteResults* r) : self(r)
     {}
+
+    auto get_diagnostic()
+    {
+        return detail::make_index_range(0, clang_codeCompleteGetNumDiagnostics(self.get()), [this](unsigned i) 
+        {
+            return diagnostic_set::diagnostic(clang_codeCompleteGetDiagnostic(self.get(), i));
+        });
+    }
+
+    string get_container_usr()
+    {
+        return clang_codeCompleteGetContainerUSR(self.get());
+    }
+
+    string get_objc_selector()
+    {
+        return clang_codeCompleteGetObjCSelector(self.get());
+    }
 
     std::size_t size() const
     {
-        if (results == nullptr) return 0;
-        else return results->NumResults;
+        if (self == nullptr) return 0;
+        else return self->NumResults;
     }
 
     iterator begin()
     {
-        if (results == nullptr) return nullptr;
-        else return results->Results;
+        if (self == nullptr) return nullptr;
+        else return self->Results;
     }
 
     iterator end()
     {
-        if (results == nullptr) return nullptr;
-        else return results->Results + results->NumResults;
+        if (self == nullptr) return nullptr;
+        else return self->Results + self->NumResults;
     }
 };
 
@@ -1030,6 +1173,10 @@ struct compile_command
     string get_directory()
     {
         return clang_CompileCommand_getDirectory(self);
+    }
+    string get_filename()
+    {
+        return clang_CompileCommand_getFilename(self);
     }
     auto get_args()
     {
@@ -1048,8 +1195,8 @@ struct compile_command
 };
 struct compile_commands
 {
-    detail::unique_ptr<CXCompileCommands, decltype(&clang_CompileCommands_dispose)> self;
-    compile_commands(CXCompileCommands s) : self(s, &clang_CompileCommands_dispose)
+    CLANGPP_UNIQUE_PTR(CXCompileCommands, clang_CompileCommands_dispose) self;
+    compile_commands(CXCompileCommands s) : self(s)
     {}
     unsigned size() const
     {
@@ -1075,12 +1222,12 @@ struct compile_commands
 };
 struct compilation_database
 {
-    using self_ptr = detail::unique_ptr<CXCompilationDatabase, decltype(&clang_CompilationDatabase_dispose)>;
+    using self_ptr = CLANGPP_UNIQUE_PTR(CXCompilationDatabase, clang_CompilationDatabase_dispose);
     self_ptr self;
-    compilation_database(string_view build_dir) : self(nullptr, &clang_CompilationDatabase_dispose)
+    compilation_database(string_view build_dir) : self(nullptr)
     {
         CXCompilationDatabase_Error error_code;
-        self = self_ptr(clang_CompilationDatabase_fromDirectory(build_dir.c_str(), &error_code), &clang_CompilationDatabase_dispose);
+        self = self_ptr(clang_CompilationDatabase_fromDirectory(build_dir.c_str(), &error_code));
         if (error_code != CXCompilationDatabase_Error::CXCompilationDatabase_NoError)
         {
             throw std::runtime_error("Database can't be loaded");
@@ -1114,7 +1261,7 @@ struct translation_unit
         return clang_Cursor_getTranslationUnit(c.self);
     }
 
-    unsigned is_file_multiple_include_guarded(file file)
+    bool is_file_multiple_include_guarded(file file)
     {
         return clang_isFileMultipleIncludeGuarded(self.get(), file.self);
     }
@@ -1134,14 +1281,13 @@ struct translation_unit
     {
         return clang_getSkippedRanges(self.get(), file.self);
     }
-    // unsigned get_num_diagnostics()
-    // {
-    //     return clang_getNumDiagnostics(self.get());
-    // }
-    // std::shared_ptr<diagnostic> get_diagnostic(unsigned index)
-    // {
-    //     return clang_getDiagnostic(self.get(), index);
-    // }
+    auto get_diagnostic()
+    {
+        return detail::make_index_range(0, clang_getNumDiagnostics(self.get()), [this](unsigned i) 
+        {
+            return diagnostic_set::diagnostic(clang_getDiagnostic(self.get(), i));
+        });
+    }
     diagnostic_set get_diagnostic_set()
     {
         return clang_getDiagnosticSetFromTU(self.get());
@@ -1177,6 +1323,10 @@ struct translation_unit
     cursor get_cursor(source_location source_location_var)
     {
         return clang_getCursor(self.get(), source_location_var.self);
+    }
+    module get_module_for_file(file file_var)
+    {
+        return clang_getModuleForFile(self.get(), file_var.self);
     }
     unsigned get_num_top_level_headers(module module)
     {
@@ -1236,15 +1386,15 @@ struct translation_unit
 
 struct index
 {
-    detail::unique_ptr<CXIndex, decltype(&clang_disposeIndex)> self;
-    index(CXIndex s) : self(s, &clang_disposeIndex)
+    CLANGPP_UNIQUE_PTR(CXIndex, clang_disposeIndex) self;
+    index(CXIndex s) : self(s)
     {}
-    index(int exclude_declarations_from_pch, int display_diagnostics) : self(clang_createIndex(exclude_declarations_from_pch, display_diagnostics), &clang_disposeIndex)
+    index(int exclude_declarations_from_pch, int display_diagnostics) : self(clang_createIndex(exclude_declarations_from_pch, display_diagnostics))
     {}
     struct action
     {
-        detail::unique_ptr<CXIndexAction, decltype(&clang_IndexAction_dispose)> self;
-        action(CXIndexAction s) : self(s, &clang_IndexAction_dispose)
+        CLANGPP_UNIQUE_PTR(CXIndexAction, clang_IndexAction_dispose) self;
+        action(CXIndexAction s) : self(s)
         {}
         int index_source_file(CXClientData client_data, IndexerCallbacks * index_callbacks, unsigned index_callbacks_size, unsigned index_options, const char * source_filename, const char * const * command_line_args, int num_command_line_args, CXUnsavedFile * unsaved_files, unsigned num_unsaved_files, CXTranslationUnit * out_tu, unsigned tu_options)
         {
@@ -1283,39 +1433,30 @@ struct index
     {
         return clang_parseTranslationUnit2(self.get(), source_filename, command_line_args, num_command_line_args, unsaved_files, num_unsaved_files, options, out_tu);
     }
+    CXErrorCode parse_translation_unit2_full_argv(const char * source_filename, const char *const * command_line_args, int num_command_line_args, CXUnsavedFile * unsaved_files, unsigned num_unsaved_files, unsigned options, CXTranslationUnit * out_tu)
+    {
+        return clang_parseTranslationUnit2FullArgv(self.get(), source_filename, command_line_args, num_command_line_args, unsaved_files, num_unsaved_files, options, out_tu);
+    }
     action create()
     {
         return clang_IndexAction_create(self.get());
     }
 };
 
+inline string to_string(CXTypeKind k)
+{
+    return clang_getTypeKindSpelling(k);
+}
 
-// struct string
-// {
-//     CXString self;
-//     string(CXTypeKind k) : self(clang_getTypeKindSpelling(k))
-//     {}
-//     string(const char * class_name) : self(clang_constructUSR_ObjCClass(class_name))
-//     {}
-//     string(const char * class_name, const char * category_name) : self(clang_constructUSR_ObjCCategory(class_name, category_name))
-//     {}
-//     string(const char * protocol_name) : self(clang_constructUSR_ObjCProtocol(protocol_name))
-//     {}
-//     string(const char * name, string class_usr) : self(clang_constructUSR_ObjCIvar(name, class_usr))
-//     {}
-//     string(const char * name, unsigned is_instance_method, string class_usr) : self(clang_constructUSR_ObjCMethod(name, is_instance_method, class_usr))
-//     {}
-//     string(const char * property, string class_usr) : self(clang_constructUSR_ObjCProperty(property, class_usr))
-//     {}
-//     string(CXCursorKind kind) : self(clang_getCursorKindSpelling(kind))
-//     {}
-//     string(CXCodeCompleteResults * results) : self(clang_codeCompleteGetContainerUSR(results))
-//     {}
-//     string(CXCodeCompleteResults * results) : self(clang_codeCompleteGetObjCSelector(results))
-//     {}
-//     string(void void_var) : self(clang_getClangVersion(void_var))
-//     {}
-// };
+inline string to_string(CXCursorKind kind)
+{
+    return clang_getCursorKindSpelling(kind);
+}
+
+inline string get_version()
+{
+    return clang_getClangVersion();
+}
 
 struct idx_loc
 {
@@ -1349,6 +1490,25 @@ struct remapping
     void get_filenames(unsigned index, CXString * original, CXString * transformed)
     {
         clang_remap_getFilenames(self, index, original, transformed);
+    }
+};
+
+struct virtual_file_overlay
+{
+    CLANGPP_UNIQUE_PTR(CXVirtualFileOverlay, clang_VirtualFileOverlay_dispose) self;
+    virtual_file_overlay(unsigned options) : self(clang_VirtualFileOverlay_create(options))
+    {}
+    CXErrorCode add_file_mapping(const char * virtual_path, const char * real_path)
+    {
+        return clang_VirtualFileOverlay_addFileMapping(self.get(), virtual_path, real_path);
+    }
+    CXErrorCode set_case_sensitivity(int case_sensitive)
+    {
+        return clang_VirtualFileOverlay_setCaseSensitivity(self.get(), case_sensitive);
+    }
+    CXErrorCode write_to_buffer(unsigned options, char ** out_buffer_ptr, unsigned * out_buffer_size)
+    {
+        return clang_VirtualFileOverlay_writeToBuffer(self.get(), options, out_buffer_ptr, out_buffer_size);
     }
 };
 
