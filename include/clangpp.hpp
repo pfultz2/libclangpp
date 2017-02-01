@@ -5,6 +5,7 @@
 #include <memory>
 #include <type_traits>
 #include <iterator>
+#include <vector>
 #include <clang-c/Index.h>
 #include <clang-c/Documentation.h>
 #include <clang-c/CXCompilationDatabase.h>
@@ -165,6 +166,29 @@ index_range<F> make_index_range(int start, int stop, F f)
 }
 
 }
+
+struct exception : std::runtime_error
+{
+    static std::string as_string(CXErrorCode e)
+    {
+        switch(e)
+        {
+            case CXError_ASTReadError: return "AST Read Error";
+            case CXError_Crashed: return "Crashed";
+            case CXError_Failure: return "Failure";
+            case CXError_InvalidArguments: return "Invalid Arguments";
+            case CXError_Success: return "Success";
+        }
+    }
+
+    exception(CXErrorCode e) : std::runtime_error(as_string(e))
+    {}
+
+    exception(CXErrorCode e, std::string message) : std::runtime_error(message + ": " + as_string(e))
+    {}
+};
+
+#define CLANGPP_THROW_ERROR(e) throw clang::exception(e, __PRETTY_FUNCTION__)
 
 struct string
 {
@@ -1387,6 +1411,8 @@ struct translation_unit
 struct index
 {
     CLANGPP_UNIQUE_PTR(CXIndex, clang_disposeIndex) self;
+    index() : self(clang_createIndex(1, 1))
+    {}
     index(CXIndex s) : self(s)
     {}
     index(int exclude_declarations_from_pch, int display_diagnostics) : self(clang_createIndex(exclude_declarations_from_pch, display_diagnostics))
@@ -1413,29 +1439,39 @@ struct index
     {
         return clang_CXIndex_getGlobalOptions(self.get());
     }
-    translation_unit create_translation_unit_from_source_file(const char * source_filename, int num_clang_command_line_args, const char * const * clang_command_line_args, unsigned num_unsaved_files, CXUnsavedFile * unsaved_files)
+    translation_unit create_translation_unit_from_source_file(string_view source_filename, int num_clang_command_line_args, const char * const * clang_command_line_args, unsigned num_unsaved_files, CXUnsavedFile * unsaved_files)
     {
-        return clang_createTranslationUnitFromSourceFile(self.get(), source_filename, num_clang_command_line_args, clang_command_line_args, num_unsaved_files, unsaved_files);
+        return clang_createTranslationUnitFromSourceFile(self.get(), source_filename.c_str(), num_clang_command_line_args, clang_command_line_args, num_unsaved_files, unsaved_files);
     }
-    translation_unit create_translation_unit(const char * ast_filename)
+    translation_unit create_translation_unit(string_view ast_filename)
     {
-        return clang_createTranslationUnit(self.get(), ast_filename);
+        CXTranslationUnit out_tu;
+        auto e = clang_createTranslationUnit2(self.get(), ast_filename.c_str(), &out_tu);
+        translation_unit result{out_tu};
+        if (e != CXError_Success) CLANGPP_THROW_ERROR(e);
+        return result;
     }
-    CXErrorCode create_translation_unit2(const char * ast_filename, CXTranslationUnit * out_tu)
+    translation_unit parse_translation_unit(string_view source_filename, std::vector<const char *> args={}, std::vector<CXUnsavedFile> unsaved_files={}, unsigned options=clang_defaultEditingTranslationUnitOptions())
     {
-        return clang_createTranslationUnit2(self.get(), ast_filename, out_tu);
+        return this->parse_translation_unit(source_filename, args.data(), args.size(), unsaved_files.data(), unsaved_files.size(), options);
     }
-    translation_unit parse_translation_unit(const char * source_filename, const char *const * command_line_args, int num_command_line_args, CXUnsavedFile * unsaved_files, unsigned num_unsaved_files, unsigned options)
+    translation_unit parse_translation_unit(string_view source_filename, const char *const * command_line_args, int num_command_line_args, CXUnsavedFile * unsaved_files, unsigned num_unsaved_files, unsigned options)
     {
-        return clang_parseTranslationUnit(self.get(), source_filename, command_line_args, num_command_line_args, unsaved_files, num_unsaved_files, options);
+        CXTranslationUnit out_tu;
+        auto e = clang_parseTranslationUnit2(self.get(), source_filename.c_str(), command_line_args, num_command_line_args, unsaved_files, num_unsaved_files, options, &out_tu);
+        translation_unit result{out_tu};
+        if (e != CXError_Success) CLANGPP_THROW_ERROR(e);
+        return result;
+
     }
-    CXErrorCode parse_translation_unit2(const char * source_filename, const char *const * command_line_args, int num_command_line_args, CXUnsavedFile * unsaved_files, unsigned num_unsaved_files, unsigned options, CXTranslationUnit * out_tu)
+    translation_unit parse_translation_unit_full_argv(string_view source_filename, const char *const * command_line_args, int num_command_line_args, CXUnsavedFile * unsaved_files, unsigned num_unsaved_files, unsigned options)
     {
-        return clang_parseTranslationUnit2(self.get(), source_filename, command_line_args, num_command_line_args, unsaved_files, num_unsaved_files, options, out_tu);
-    }
-    CXErrorCode parse_translation_unit2_full_argv(const char * source_filename, const char *const * command_line_args, int num_command_line_args, CXUnsavedFile * unsaved_files, unsigned num_unsaved_files, unsigned options, CXTranslationUnit * out_tu)
-    {
-        return clang_parseTranslationUnit2FullArgv(self.get(), source_filename, command_line_args, num_command_line_args, unsaved_files, num_unsaved_files, options, out_tu);
+        CXTranslationUnit out_tu;
+        auto e = clang_parseTranslationUnit2FullArgv(self.get(), source_filename.c_str(), command_line_args, num_command_line_args, unsaved_files, num_unsaved_files, options, &out_tu);
+        translation_unit result{out_tu};
+        if (e != CXError_Success) CLANGPP_THROW_ERROR(e);
+        return result;
+
     }
     action create()
     {

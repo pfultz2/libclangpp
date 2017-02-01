@@ -27,3 +27,7 @@ include_directories(include)
 bcm_test_header(NAME clangpp-header HEADER clangpp.hpp STATIC)
 target_include_directories(clangpp-header PUBLIC include ${CLANG_INCLUDE_DIR})
 target_link_libraries(clangpp-header ${CLANG_LIB})
+
+bcm_add_test(NAME test-basic SOURCES test/basic.cpp)
+target_include_directories(test-basic PUBLIC include ${CLANG_INCLUDE_DIR})
+target_link_libraries(test-basic ${CLANG_LIB})
