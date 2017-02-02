@@ -39,104 +39,104 @@ using shared_ptr = std::shared_ptr<typename std::remove_pointer<T>::type>;
 
 #define CLANGPP_UNIQUE_PTR(T, F) clang::detail::unique_ptr<typename std::remove_pointer<T>::type, decltype(&F), &F>
 
-template<class F>
-struct index_iterator
+template<class F, class Iterator=int>
+struct iota_iterator
 {
-    int index;
+    Iterator index;
     F* f;
 
     using difference_type = std::ptrdiff_t;
-    using reference = decltype((*f)(1));
+    using reference = decltype((*f)(std::declval<Iterator>()));
     using value_type = typename std::remove_reference<reference>::type;
     using pointer = typename std::add_pointer<value_type>::type;
     using iterator_category = std::input_iterator_tag;
 
-    index_iterator(int i, F& fun) : index(i), f(&fun)
+    iota_iterator(Iterator i, F& fun) : index(i), f(&fun)
     {}
 
-    index_iterator& operator+=(int n)
+    iota_iterator& operator+=(int n)
     {
         index += n;
         return *this;
     }
 
-    index_iterator& operator-=(int n)
+    iota_iterator& operator-=(int n)
     {
         index += n;
         return *this;
     }
 
-    int& operator++()
+    iota_iterator& operator++()
     {
         index++;
         return *this;
     }
 
-    int& operator--()
+    iota_iterator& operator--()
     {
         index--;
         return *this;
     }
 
-    int operator++(int)
+    iota_iterator operator++(int)
     {
-        index_iterator it = *this;
+        iota_iterator it = *this;
         index++;
         return it;
     }
 
-    int operator--(int)
+    iota_iterator operator--(int)
     {
-        index_iterator it = *this;
+        iota_iterator it = *this;
         index--;
         return it;
     }
     // TODO: operator->
     reference operator*() const
     {
-        return f(index);
+        return (*f)(index);
     }
 };
 
-template<class F>
-inline index_iterator<F>
-operator +(index_iterator<F> x, index_iterator<F> y)
+template<class F, class Iterator>
+inline iota_iterator<F, Iterator>
+operator +(iota_iterator<F, Iterator> x, iota_iterator<F, Iterator> y)
 {
-    return index_iterator<F>(x.index + y.index, x.f);
+    return iota_iterator<F, Iterator>(x.index + y.index, x.f);
 }
 
-template<class F>
-inline index_iterator<F>
-operator -(index_iterator<F> x, index_iterator<F> y)
+template<class F, class Iterator>
+inline iota_iterator<F, Iterator>
+operator -(iota_iterator<F, Iterator> x, iota_iterator<F, Iterator> y)
 {
-    return index_iterator<F>(x.index - y.index, x.f);
+    return iota_iterator<F, Iterator>(x.index - y.index, x.f);
 }
 
-template<class F>
+template<class F, class Iterator>
 inline bool
-operator ==(index_iterator<F> x, index_iterator<F> y)
+operator ==(iota_iterator<F, Iterator> x, iota_iterator<F, Iterator> y)
 {
     return x.index == y.index;
 }
 
-template<class F>
+template<class F, class Iterator>
 inline bool
-operator !=(index_iterator<F> x, index_iterator<F> y)
+operator !=(iota_iterator<F, Iterator> x, iota_iterator<F, Iterator> y)
 {
     return x.index != y.index;
 }
 
-template<class F>
-struct index_range
+template<class F, class Iterator=int>
+struct iota_range
 {
     F f;
-    int start, stop;
-    index_range(F f, int start, int stop) 
+    Iterator start, stop;
+    iota_range(F f, Iterator start, Iterator stop) 
     : f(f), start(start), stop(stop)
     {}
 
-    using iterator = index_iterator<F>;
-    using const_iterator = index_iterator<F>;
+    using iterator = iota_iterator<F, Iterator>;
+    using const_iterator = iota_iterator<F, Iterator>;
 
     long size() const
     {
@@ -159,10 +159,54 @@ struct index_range
     }
 };
 
-template<class F>
-index_range<F> make_index_range(int start, int stop, F f)
+template<class F, class Iterator>
+iota_range<F, Iterator> make_iota_range(Iterator start, Iterator stop, F f)
 {
-    return index_range<F>(f, start, stop);
+    return iota_range<F, Iterator>(f, start, stop);
+}
+
+template<class F>
+iota_range<F> make_index_range(int start, int stop, F f)
+{
+    return iota_range<F>(f, start, stop);
+}
+
+template<class Iterator>
+struct iterator_range
+{
+    Iterator start, stop;
+    iterator_range(Iterator start, Iterator stop) 
+    : start(start), stop(stop)
+    {}
+
+    using iterator = Iterator;
+    using const_iterator = Iterator;
+
+    long size() const
+    {
+        return stop - start;
+    }
+
+    bool empty() const
+    {
+        return start == stop;
+    }
+
+    iterator begin()
+    {
+        return start;
+    }
+
+    iterator end()
+    {
+        return stop;
+    }
+};
+
+template<class Iterator>
+iterator_range<Iterator> make_iterator_range(Iterator start, Iterator stop)
+{
+    return {start, stop};
 }
 
 }
@@ -366,15 +410,6 @@ struct source_range
     }
 };
 
-struct token
-{
-    CXToken self;
-    CXTokenKind get_token_kind()
-    {
-        return clang_getTokenKind(self);
-    }
-};
-
 struct fix_it
 {
     string replacement;
@@ -458,8 +493,8 @@ struct diagnostic_set
         return clang_getDiagnosticInSet(self.get(), index);
     }
     
-    using iterator = detail::index_iterator<const diagnostic_set>;
-    using const_iterator = detail::index_iterator<const diagnostic_set>;
+    using iterator = detail::iota_iterator<const diagnostic_set>;
+    using const_iterator = detail::iota_iterator<const diagnostic_set>;
 
     iterator begin() const
     {
@@ -1231,8 +1266,8 @@ struct compile_commands
         return clang_CompileCommands_getCommand(self.get(), i);
     }
 
-    using iterator = detail::index_iterator<const compile_commands>;
-    using const_iterator = detail::index_iterator<const compile_commands>;
+    using iterator = detail::iota_iterator<const compile_commands>;
+    using const_iterator = detail::iota_iterator<const compile_commands>;
 
     iterator begin() const
     {
@@ -1289,9 +1324,9 @@ struct translation_unit
     {
         return clang_isFileMultipleIncludeGuarded(self.get(), file.self);
     }
-    file get_file(const char * file_name)
+    file get_file(string_view file_name)
     {
-        return clang_getFile(self.get(), file_name);
+        return clang_getFile(self.get(), file_name.c_str());
     }
     source_location get_location(file file, unsigned line, unsigned column)
     {
@@ -1324,9 +1359,9 @@ struct translation_unit
     {
         return clang_defaultSaveOptions(self.get());
     }
-    int save_translation_unit(const char * file_name, unsigned options)
+    int save_translation_unit(string_view file_name, unsigned options)
     {
-        return clang_saveTranslationUnit(self.get(), file_name, options);
+        return clang_saveTranslationUnit(self.get(), file_name.c_str(), options);
     }
     unsigned default_reparse_options()
     {
@@ -1360,21 +1395,51 @@ struct translation_unit
     {
         return clang_Module_getTopLevelHeader(self.get(), module.self, index);
     }
-    string get_token_spelling(token token_var)
+    struct token_array_handler
     {
-        return clang_getTokenSpelling(self.get(), token_var.self);
-    }
-    source_location get_token_location(token token_var)
+        CXToken * tokens;
+        unsigned size;
+        detail::shared_ptr<CXTranslationUnit> tu;
+        token_array_handler(CXToken * ptokens, unsigned psize, detail::shared_ptr<CXTranslationUnit> ptu)
+        : tokens(ptokens), size(psize), tu(ptu)
+        {}
+        ~token_array_handler()
+        {
+            clang_disposeTokens(tu.get(), tokens, size);
+        }
+    };
+    struct token
     {
-        return clang_getTokenLocation(self.get(), token_var.self);
-    }
-    source_range get_token_extent(token token_var)
+        CXToken self;
+        detail::shared_ptr<CXTranslationUnit> tu;
+
+        string get_spelling()
+        {
+            return clang_getTokenSpelling(tu.get(), self);
+        }
+        source_location get_location()
+        {
+            return clang_getTokenLocation(tu.get(), self);
+        }
+        source_range get_extent()
+        {
+            return clang_getTokenExtent(tu.get(), self);
+        }
+        CXTokenKind get_kind()
+        {
+            return clang_getTokenKind(self);
+        }
+    };
+    auto tokenize(source_range range)
     {
-        return clang_getTokenExtent(self.get(), token_var.self);
-    }
-    void tokenize(source_range range, CXToken ** tokens, unsigned * num_tokens)
-    {
-        clang_tokenize(self.get(), range.self, tokens, num_tokens);
+        CXToken * start;
+        unsigned size;
+        clang_tokenize(self.get(), range.self, &start, &size);
+        auto ta = std::make_shared<token_array_handler>(start, size, this->self);
+        return detail::make_iota_range(start, start+size, [ta](CXToken * t)
+        {
+            return token{*t, ta->tu};
+        });
     }
     void annotate_tokens(CXToken * tokens, unsigned num_tokens, CXCursor * cursors)
     {
@@ -1407,6 +1472,7 @@ struct translation_unit
 #endif
 };
 
+using token = translation_unit::token;
 
 struct index
 {

@@ -1,5 +1,6 @@
 #include <clangpp.hpp>
 #include <vector>
+#include <algorithm>
 
 #define CHECK(...) if (!(__VA_ARGS__)) { printf("Failed: %s\n", #__VA_ARGS__); std::abort(); }
 
@@ -13,7 +14,7 @@ int main() {
     CHECK(diags.begin() == diags.end());
     std::vector<std::string> classes;
     std::vector<std::string> methods;
-    tu.get_translation_unit_cursor().visit_children([&](clang::cursor c, clang::cursor parent)
+    tu.get_translation_unit_cursor().visit_children([&](clang::cursor c, clang::cursor)
     {
         if (c.get_kind() == CXCursor_StructDecl || c.get_kind() == CXCursor_ClassDecl)
         {
@@ -31,4 +32,18 @@ int main() {
     CHECK(methods.size() == 1);
     CHECK(classes[0] == "foo");
     CHECK(methods[0] == "method()");
+
+    auto f = tu.get_file(dir + "example.cpp");
+    auto start = tu.get_location(f, 1, 1);
+    auto stop = tu.get_location(f, 7, 1);
+    auto tokens = tu.tokenize({start, stop});
+    for(std::string s:{"foo", "struct", "method"})
+    {
+        // printf("Token: %s\n", s.c_str());
+        CHECK(std::any_of(tokens.begin(), tokens.end(), [&](clang::token t)
+        {
+            return t.get_spelling().to_std_string() == s;
+        }));
+        
+    }
 }
