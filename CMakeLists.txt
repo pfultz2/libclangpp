@@ -1,33 +1,36 @@
 cmake_minimum_required (VERSION 2.8)
 list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake")
 include(BCMTest)
+include(clang)
 
-find_library(
-    CLANG_LIB clang 
-    PATH_SUFFIXES 
-        llvm-4.0/lib
-        llvm-3.9/lib
-        llvm-3.8/lib
-        llvm-3.7/lib
-        llvm-3.6/lib
-        llvm-3.5/lib
+add_library(clangpp INTERFACE)
+target_include_directories(clangpp INTERFACE $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>)
+target_link_libraries(clangpp INTERFACE clang::clang)
+
+# Installation
+install(DIRECTORY include/ DESTINATION include)
+
+install(TARGETS clangpp EXPORT clangpp-targets
+    RUNTIME DESTINATION bin
+    LIBRARY DESTINATION lib
+    ARCHIVE DESTINATION lib
+    INCLUDES DESTINATION include
 )
 
-get_filename_component(CLANG_LIB_DIR ${CLANG_LIB} PATH)
-get_filename_component(CLANG_ROOT ${CLANG_LIB_DIR}/.. ABSOLUTE)
+install(EXPORT clangpp-targets
+    FILE clangpp-targets.cmake
+    NAMESPACE clang::
+    DESTINATION lib/cmake/clangpp
+)
 
-message(STATUS "Clang found: ${CLANG_ROOT}")
+install(FILES 
+        cmake/clangpp-config.cmake
+        cmake/clang.cmake
+    DESTINATION lib/cmake/clangpp)
 
-find_path(CLANG_INCLUDE_DIR clang-c/Index.h PATHS ${CLANG_ROOT}/include)
-
-# find_package(LLVM CONFIG)
-# message(STATUS "Found LLVM ${LLVM_PACKAGE_VERSION}")
-
-include_directories(include)
+# Tests
 bcm_test_header(NAME clangpp-header HEADER clangpp.hpp STATIC)
-target_include_directories(clangpp-header PUBLIC include ${CLANG_INCLUDE_DIR})
-target_link_libraries(clangpp-header ${CLANG_LIB})
+target_link_libraries(clangpp-header clangpp)
 
 bcm_add_test(NAME test-basic SOURCES test/basic.cpp)
-target_include_directories(test-basic PUBLIC include ${CLANG_INCLUDE_DIR})
-target_link_libraries(test-basic ${CLANG_LIB})
+target_link_libraries(test-basic clangpp)
